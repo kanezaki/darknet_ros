@@ -308,7 +308,7 @@ void *YoloObjectDetector::detectInThread()
   int nboxes = 0;
   detection *dets = get_network_boxes(&net_, net_.w, net_.h, demoThresh_, .5, 0, 1, &nboxes);
   if (nms > 0)
-    do_nms_sort(dets, l.w * l.h * l.n, l.classes, nms);
+    do_nms_sort(dets, nboxes, l.classes, nms);
 
   if (enableConsoleOutput_) {
     printf("\nFPS:%.1f\n", fps_);
@@ -319,14 +319,14 @@ void *YoloObjectDetector::detectInThread()
                   demoClasses_);
 
   // extract the bounding boxes and send them to ROS
-  int total = l.w * l.h * l.n;
+  int total = nboxes;
   int i, j;
   int count = 0;
   for (i = 0; i < total; ++i) {
-    float xmin = boxes_[i].x - boxes_[i].w / 2.;
-    float xmax = boxes_[i].x + boxes_[i].w / 2.;
-    float ymin = boxes_[i].y - boxes_[i].h / 2.;
-    float ymax = boxes_[i].y + boxes_[i].h / 2.;
+    float xmin = dets[i].bbox.x - dets[i].bbox.w / 2.;
+    float xmax = dets[i].bbox.x + dets[i].bbox.w / 2.;
+    float ymin = dets[i].bbox.y - dets[i].bbox.h / 2.;
+    float ymax = dets[i].bbox.y + dets[i].bbox.h / 2.;
 
     if (xmin < 0)
       xmin = 0;
@@ -339,12 +339,11 @@ void *YoloObjectDetector::detectInThread()
 
     // iterate through possible boxes and collect the bounding boxes
     for (j = 0; j < l.classes; ++j) {
-      if (probs_[i][j]) {
+      if (dets[i].prob[j]) {
         float x_center = (xmin + xmax) / 2;
         float y_center = (ymin + ymax) / 2;
         float BoundingBox_width = xmax - xmin;
         float BoundingBox_height = ymax - ymin;
-
         // define bounding box
         // BoundingBox must be 1% size of frame (3.2x2.4 pixels)
         if (BoundingBox_width > 0.01 && BoundingBox_height > 0.01) {
@@ -353,7 +352,7 @@ void *YoloObjectDetector::detectInThread()
           roiBoxes_[count].w = BoundingBox_width;
           roiBoxes_[count].h = BoundingBox_height;
           roiBoxes_[count].Class = j;
-          roiBoxes_[count].prob = probs_[i][j];
+          roiBoxes_[count].prob = dets[i].prob[j];
           count++;
         }
       }
@@ -437,7 +436,7 @@ void YoloObjectDetector::setupNetwork(char *cfgfile, char *weightfile, char *dat
   demoThresh_ = thresh;
   demoHier_ = hier;
   fullScreen_ = fullscreen;
-  printf("YOLO_V2\n");
+  printf("YOLO_V3\n");
   net_ = *parse_network_cfg(cfgfile);
   if (weightfile) {
     load_weights(&net_, weightfile);
@@ -471,11 +470,7 @@ void YoloObjectDetector::yolo()
   for (j = 0; j < demoFrame_; ++j)
     predictions_[j] = (float *) calloc(l.outputs, sizeof(float));
 
-  boxes_ = (box *) calloc(l.w * l.h * l.n, sizeof(box));
   roiBoxes_ = (darknet_ros::RosBox_ *) calloc(l.w * l.h * l.n, sizeof(darknet_ros::RosBox_));
-  probs_ = (float **) calloc(l.w * l.h * l.n, sizeof(float *));
-  for (j = 0; j < l.w * l.h * l.n; ++j)
-    probs_[j] = (float *) calloc(l.classes + 1, sizeof(float));
 
   IplImage* ROS_img = getIplImage();
   buff_[0] = ipl_to_image(ROS_img);
